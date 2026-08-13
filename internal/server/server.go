@@ -341,13 +341,17 @@ func (s *Server) Serve(ctx context.Context, ln net.Listener) error {
 
 	// Scope both websocket handshakes to the address we are actually listening on,
 	// so a page on another origin can neither read the model snapshot nor type
-	// into a terminal. Composed through publicSurface so ticket 06 can add
-	// public-URL entries without touching this seam again; with no extras
-	// (the state today) the result is byte-identical to originPatterns +
-	// hostRuleFor at the two call sites. This is written before the listener
-	// is served, and every handler that reads it runs on a goroutine started
-	// after, so the write is ordered ahead of every read without a lock.
-	surface, err := newPublicSurface(ln.Addr(), nil)
+	// into a terminal. CHARTR_PUBLIC_URL extends both the host allowlist and the
+	// origin patterns to the reverse-proxy or Docker-remapped shape chartr is
+	// reached under (docker-deploy, ticket 06). A malformed entry fails
+	// startup — fail-fast, not a silent skip. This is written before the
+	// listener is served, and every handler that reads it runs on a goroutine
+	// started after, so the write is ordered ahead of every read without a lock.
+	extras, err := parsePublicURLList(os.Getenv("CHARTR_PUBLIC_URL"))
+	if err != nil {
+		return err
+	}
+	surface, err := newPublicSurface(ln.Addr(), extras)
 	if err != nil {
 		return err
 	}

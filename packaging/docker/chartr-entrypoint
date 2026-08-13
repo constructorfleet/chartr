@@ -1,0 +1,32 @@
+#!/bin/sh
+# chartr-entrypoint — reconcile the container's `chartr` user with the
+# operator's host uid/gid, chown the chartr-owned volumes, and drop
+# privileges before exec-ing the binary.
+#
+# Bind-mounted repos under /workspace are the operator's own tree — we
+# never chown those, we only match the uid so files chartr creates there
+# come out with their ownership rather than root's.
+set -eu
+
+PUID="${PUID:-1000}"
+PGID="${PGID:-1000}"
+
+# Only reconcile when the numbers differ from the shipped defaults; the
+# usermod/groupmod calls are cheap but not free, and skipping them keeps
+# the ordinary case (host uid == 1000) noiseless.
+current_uid="$(id -u chartr)"
+current_gid="$(id -g chartr)"
+
+if [ "$current_gid" != "$PGID" ]; then
+    groupmod -o -g "$PGID" chartr
+fi
+if [ "$current_uid" != "$PUID" ]; then
+    usermod -o -u "$PUID" chartr
+fi
+
+# chartr-owned volumes only. Anything else the operator mounted in
+# (/workspace, /opt/agents, ~/.claude) stays as-is: chartr is a guest
+# there, not its owner.
+chown -R "$PUID:$PGID" /data /config /home/chartr 2>/dev/null || true
+
+exec gosu chartr:chartr /usr/local/bin/chartr "$@"

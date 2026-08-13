@@ -21,6 +21,13 @@ chartr does not provide authentication. Keep the server bound to the default
 loopback address unless you intend to make it accessible over a network. See
 [CLI and source builds](cli-and-source-builds.md) for command-line options.
 
+### Run chartr as a Docker container
+
+An official image at `ghcr.io/rengwu/chartr:latest` includes five baked-in
+agent CLIs (Claude Code, Codex, Gemini CLI, OpenCode, Aider) and runs as
+your host user. See [Docker deployment](docker.md) for the full walkthrough
+(compose file, PUID/PGID, reverse-proxy snippets, image verification).
+
 ## 2. Register an agent
 
 Register an installed agent CLI before using it with chartr.

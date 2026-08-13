@@ -36,6 +36,8 @@ Plan with an agent, then chart a map of your work. Drive the map to completion, 
 
 Download the macOS or Linux app using the links above. Other builds are
 available on the [releases page](https://github.com/rengwu/chartr/releases).
+For a self-hosted headless deployment with baked-in agent CLIs, see
+[docs/docker.md](docs/docker.md).
 
 ### macOS
 

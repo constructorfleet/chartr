@@ -1,0 +1,42 @@
+# chartr — canonical single-user Docker Compose file.
+#
+# Copy this alongside a `.env` (see below) and run `docker compose up -d`.
+# The image is pulled from GHCR; PUID/PGID default to your host uid/gid so
+# files chartr creates in the mounted volumes and workspace come out with
+# your ownership. Localhost-only bind: expose remotely via a reverse proxy
+# and set CHARTR_PUBLIC_URL — see docs/docker.md.
+
+services:
+  chartr:
+    image: ghcr.io/rengwu/chartr:latest
+    container_name: chartr
+    restart: unless-stopped
+    # Loopback bind — chartr has no authentication, and the port IS the
+    # access check. Put a reverse proxy in front to expose it further.
+    ports:
+      - "127.0.0.1:8787:8787"
+    environment:
+      # Match the host user so files created in bind-mounts belong to you.
+      PUID: "${UID:-1000}"
+      PGID: "${GID:-1000}"
+      # The public URL the operator's browser (or reverse proxy) reaches
+      # chartr under. This admits its Host and its websocket Origin.
+      CHARTR_PUBLIC_URL: "http://localhost:8787"
+    # API keys and agent auth tokens. Keep out of git; docker compose reads
+    # it automatically when the file is beside this compose.yaml.
+    env_file:
+      - .env
+    volumes:
+      - chartr-data:/data
+      - chartr-config:/config
+      # Bind-mount the repos chartr should be able to see. Adjust to taste.
+      - ${HOME}/src:/workspace
+      # Uncomment to reuse the host's Claude Code auth in-container:
+      # - ${HOME}/.claude:/home/chartr/.claude
+      # Drop-in agents beyond the baked five — anything on this path
+      # prepends chartr's PATH inside the container.
+      # - ./agents:/opt/agents:ro
+
+volumes:
+  chartr-data:
+  chartr-config:

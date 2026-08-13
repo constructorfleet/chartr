@@ -35,6 +35,21 @@ var (
 const defaultAddr = "127.0.0.1:8787"
 
 func main() {
+	// Subcommands come before flag parsing so `chartr agents list-baked` is
+	// not read as a positional argument to serve. Only one subcommand today —
+	// `agents` — and the walking-skeleton entry is what runs when there is
+	// none.
+	if len(os.Args) > 1 && os.Args[1] == "agents" {
+		os.Exit(agentsCmd(os.Args[2:], os.Stdout, os.Stderr))
+	}
+
+	// The top-level `-help` output mentions the subcommands so an operator
+	// discovers `chartr agents list-baked` without having to know it exists.
+	flag.Usage = func() {
+		fmt.Fprintf(flag.CommandLine.Output(), "Usage: chartr [flags]\n       chartr agents <subcommand>\n\nFlags:\n")
+		flag.PrintDefaults()
+	}
+
 	// Flag defaults are empty so env.Resolve can tell "not passed" apart from
 	// "passed with the compiled default" — the flag > env > default precedence
 	// the ticket calls for. The compiled defaults are named in the usage strings

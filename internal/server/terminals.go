@@ -215,6 +215,10 @@ func (s *Server) handleTerminal(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
 
+	// Keepalive pings every pingInterval so an idle reverse-proxy doesn't
+	// drop the long-lived PTY (docker-deploy, ticket 03).
+	go keepalive(ctx, c)
+
 	att := t.Attach()
 	defer att.Detach()
 

@@ -38,6 +38,11 @@ func (s *Server) handleControl(w http.ResponseWriter, r *http.Request) {
 	// CloseRead does exactly that and cancels ctx when the peer goes away.
 	ctx := c.CloseRead(r.Context())
 
+	// Fire a ping every pingInterval so an idle reverse-proxy doesn't drop
+	// the connection (docker-deploy, ticket 03). The goroutine exits when
+	// ctx is cancelled — the same signal the loop below uses.
+	go keepalive(ctx, c)
+
 	// A connect is a discovery notice of its own (ticket 19). The watch degrades
 	// to watching nothing when fsnotify cannot start, and an individual create
 	// event can be missed; in either state an operator who takes no action never

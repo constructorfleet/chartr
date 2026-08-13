@@ -1,0 +1,147 @@
+name: docker-publish
+
+# docker-deploy ticket 09: multi-arch (amd64+arm64) publish to GHCR on push
+# to main (:edge) and semver tags (semver-shaped tags + :latest). Cosign
+# keyless sign the manifest-list digest; SBOM and provenance attestations
+# attached. Follow-on verify job pulls both arches, cosign-verifies, and
+# smoke-runs `chartr --help` and `chartr agents list-baked`.
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*.*.*"]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  packages: write
+  id-token: write        # cosign keyless OIDC
+  attestations: write
+
+concurrency:
+  group: docker-publish-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  IMAGE: ghcr.io/${{ github.repository }}
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
+      tags: ${{ steps.meta.outputs.tags }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up QEMU (arm64 emulation)
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Docker metadata (tags + labels)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE }}
+          # :edge on main; semver-shaped tags for a v*.*.* tag; :latest on stable
+          # semver only. workflow_dispatch on a feature branch produces a sha tag.
+          tags: |
+            type=edge,branch=main
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=raw,value=latest,enable=${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && !contains(github.ref, '-') }}
+            type=sha,event=workflow_dispatch
+          labels: |
+            org.opencontainers.image.title=chartr
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+
+      - name: Build and push (multi-arch)
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: packaging/docker/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: mode=min
+          sbom: true
+          build-args: |
+            VERSION=${{ github.ref_name }}
+            COMMIT=${{ github.sha }}
+            DATE=${{ github.event.repository.updated_at }}
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: Cosign sign (keyless) the manifest digest
+        env:
+          COSIGN_EXPERIMENTAL: "1"
+        run: |
+          set -eu
+          digest="${{ steps.build.outputs.digest }}"
+          # Sign each tag reference at the manifest digest so a `cosign verify`
+          # against any of them (or against the digest itself) succeeds.
+          echo "${{ steps.meta.outputs.tags }}" | while IFS= read -r tag; do
+            [ -n "$tag" ] || continue
+            image="${tag}@${digest}"
+            echo "signing $image"
+            cosign sign --yes "$image"
+          done
+
+  verify:
+    needs: build-and-publish
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set up QEMU (arm64 emulation for the smoke test)
+        uses: docker/setup-qemu-action@v3
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: Cosign verify (keyless, bound to this workflow)
+        env:
+          COSIGN_EXPERIMENTAL: "1"
+        run: |
+          set -eu
+          digest="${{ needs.build-and-publish.outputs.digest }}"
+          image="${IMAGE}@${digest}"
+          cosign verify "$image" \
+            --certificate-identity-regexp="^https://github.com/${{ github.repository }}/.github/workflows/docker-publish\\.yml@" \
+            --certificate-oidc-issuer=https://token.actions.githubusercontent.com
+
+      - name: Smoke test (linux/amd64)
+        run: |
+          set -eu
+          digest="${{ needs.build-and-publish.outputs.digest }}"
+          image="${IMAGE}@${digest}"
+          docker run --rm --platform linux/amd64 --entrypoint chartr "$image" --version
+          docker run --rm --platform linux/amd64 --entrypoint chartr "$image" agents list-baked
+
+      - name: Smoke test (linux/arm64 under qemu)
+        run: |
+          set -eu
+          digest="${{ needs.build-and-publish.outputs.digest }}"
+          image="${IMAGE}@${digest}"
+          docker run --rm --platform linux/arm64 --entrypoint chartr "$image" --version
+          docker run --rm --platform linux/arm64 --entrypoint chartr "$image" agents list-baked

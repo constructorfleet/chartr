@@ -30,9 +30,17 @@ var (
 	date    = "unknown"
 )
 
+// defaultAddr is the compiled-in bind, applied when neither the -addr flag
+// nor CHARTR_ADDR is set.
+const defaultAddr = "127.0.0.1:8787"
+
 func main() {
-	addr := flag.String("addr", "127.0.0.1:8787", "address to serve the cockpit on")
-	dataDir := flag.String("data-dir", "", "chartr session/runtime root (defaults to the current directory); user config lives under ~/.config/chartr")
+	// Flag defaults are empty so env.Resolve can tell "not passed" apart from
+	// "passed with the compiled default" — the flag > env > default precedence
+	// the ticket calls for. The compiled defaults are named in the usage strings
+	// so `-help` still tells an operator what they get with nothing set.
+	addr := flag.String("addr", "", "address to serve the cockpit on (default \""+defaultAddr+"\", env CHARTR_ADDR)")
+	dataDir := flag.String("data-dir", "", "chartr session/runtime root (default: current directory, env CHARTR_DATA_DIR); user config lives under ~/.config/chartr")
 	showVersion := flag.Bool("version", false, "print version and exit")
 	flag.Parse()
 
@@ -41,7 +49,12 @@ func main() {
 		return
 	}
 
-	if err := run(*addr, *dataDir); err != nil {
+	resolvedAddr := env.Resolve(*addr, "CHARTR_ADDR", defaultAddr)
+	// data-dir passes through empty when nothing set it — server.New applies
+	// its own "." default, which is the compiled behaviour to preserve.
+	resolvedDataDir := env.Resolve(*dataDir, "CHARTR_DATA_DIR", "")
+
+	if err := run(resolvedAddr, resolvedDataDir); err != nil {
 		log.Fatalf("chartr: %v", err)
 	}
 }

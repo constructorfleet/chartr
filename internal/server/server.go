@@ -295,6 +295,24 @@ func New(opts Options) (*Server, error) {
 	return s, nil
 }
 
+// readHeaderTimeout caps how long the server will wait for a request-header
+// stream to arrive. A slow-drip write must not hold a connection open
+// indefinitely on a network-exposed listener (docker-deploy, ticket 04). No
+// WriteTimeout or IdleTimeout — websocket handlers hijack the connection and
+// would break under those. Package-level so a test can shorten it via
+// SetReadHeaderTimeoutForTest.
+var readHeaderTimeout = 10 * time.Second
+
+// SetReadHeaderTimeoutForTest lowers the server's ReadHeaderTimeout for the
+// duration of a test and returns a restore function. It is exported only for
+// tests in a sibling package that would otherwise wait 10 seconds to prove a
+// slow-drip header is dropped.
+func SetReadHeaderTimeoutForTest(d time.Duration) func() {
+	prev := readHeaderTimeout
+	readHeaderTimeout = d
+	return func() { readHeaderTimeout = prev }
+}
+
 // ConfigRoot resolves chartr's config root to `~/.config/chartr`, honouring
 // `XDG_CONFIG_HOME` when it is set. This is deliberately *not* os.UserConfigDir:
 // that returns `~/Library/Application Support` on macOS, and we want one path an
@@ -350,7 +368,7 @@ func (s *Server) Serve(ctx context.Context, ln net.Listener) error {
 		// attacker's origin *is* this address, and the only thing that still gives
 		// it away is the name it asks for.
 		Handler:           gate(ln.Addr(), s.mux),
-		ReadHeaderTimeout: 10 * time.Second,
+		ReadHeaderTimeout: readHeaderTimeout,
 		// No WriteTimeout: the control and terminal sockets are long-lived.
 		BaseContext: func(net.Listener) context.Context { return ctx },
 	}

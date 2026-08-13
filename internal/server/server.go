@@ -341,10 +341,17 @@ func (s *Server) Serve(ctx context.Context, ln net.Listener) error {
 
 	// Scope both websocket handshakes to the address we are actually listening on,
 	// so a page on another origin can neither read the model snapshot nor type
-	// into a terminal. This is written before the listener is served, and every
-	// handler that reads it runs on a goroutine started after, so the write is
-	// ordered ahead of every read without a lock.
-	s.origins = originPatterns(ln.Addr())
+	// into a terminal. Composed through publicSurface so ticket 06 can add
+	// public-URL entries without touching this seam again; with no extras
+	// (the state today) the result is byte-identical to originPatterns +
+	// hostRuleFor at the two call sites. This is written before the listener
+	// is served, and every handler that reads it runs on a goroutine started
+	// after, so the write is ordered ahead of every read without a lock.
+	surface, err := newPublicSurface(ln.Addr(), nil)
+	if err != nil {
+		return err
+	}
+	s.origins = surface.Origins
 
 	// A bind that is not loopback puts an unauthenticated API — shells, agent
 	// spawns, the operator's files — in front of everyone who can reach the port,
@@ -367,7 +374,7 @@ func (s *Server) Serve(ctx context.Context, ln net.Listener) error {
 		// not enough on its own: a DNS-rebinding name makes the browser believe the
 		// attacker's origin *is* this address, and the only thing that still gives
 		// it away is the name it asks for.
-		Handler:           gate(ln.Addr(), s.mux),
+		Handler:           gate(surface, s.mux),
 		ReadHeaderTimeout: readHeaderTimeout,
 		// No WriteTimeout: the control and terminal sockets are long-lived.
 		BaseContext: func(net.Listener) context.Context { return ctx },

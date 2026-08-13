@@ -2,7 +2,6 @@ package server
 
 import (
 	"mime"
-	"net"
 	"net/http"
 	"strings"
 )
@@ -22,10 +21,9 @@ import (
 // A refusal is a plain http.Error with nothing worth reading in it, and never a
 // redirect — a redirect to the right name would hand an attacker's page a
 // working URL.
-func gate(addr net.Addr, h http.Handler) http.Handler {
-	rule := hostRuleFor(addr)
+func gate(surface publicSurface, h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !rule.allows(r.Host) {
+		if !surface.Allows(r.Host) {
 			http.Error(w, "forbidden", http.StatusForbidden)
 			return
 		}

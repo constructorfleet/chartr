@@ -42,6 +42,40 @@ func TestANonLoopbackBindWarnsAboutWhatItExposes(t *testing.T) {
 	}
 }
 
+// CHARTR_IN_CONTAINER=1 silences the exposure warning: inside a container a
+// non-loopback bind IS the intended configuration (docker-deploy, ticket 02),
+// and a warning fired on every start is one an operator learns to ignore.
+// Bare-metal operators — who did not set the env — keep the warning, which is
+// covered by TestANonLoopbackBindWarnsAboutWhatItExposes above.
+func TestCHARTR_IN_CONTAINERSilencesTheExposureWarning(t *testing.T) {
+	t.Setenv("CHARTR_IN_CONTAINER", "1")
+	h := chartrtest.Start(t, chartrtest.WithBindAddress("0.0.0.0:0"))
+
+	// Answered request proves Serve got past the point that would have logged.
+	if code, _ := h.Get("/api/health"); code != 200 {
+		t.Fatalf("sanity: /api/health on a wildcard-bound in-container chartr = %d, want 200", code)
+	}
+
+	if logged := h.Logged(); strings.Contains(logged, "WARNING") {
+		t.Errorf("CHARTR_IN_CONTAINER=1 did not silence the warning; log was:\n%s", logged)
+	}
+}
+
+// A loopback bind under CHARTR_IN_CONTAINER=1 still logs nothing — there was
+// nothing to warn about, and the env should not flip a silent case into a
+// noisy one.
+func TestCHARTR_IN_CONTAINERLeavesALoopbackBindQuiet(t *testing.T) {
+	t.Setenv("CHARTR_IN_CONTAINER", "1")
+	h := chartrtest.Start(t)
+
+	if code, _ := h.Get("/api/health"); code != 200 {
+		t.Fatalf("sanity: /api/health = %d, want 200", code)
+	}
+	if logged := h.Logged(); strings.Contains(logged, "WARNING") {
+		t.Errorf("a loopback bind warned under CHARTR_IN_CONTAINER=1; log was:\n%s", logged)
+	}
+}
+
 // The other half, and the half that decides whether the warning above is ever
 // read: a loopback bind says nothing. Both spellings an operator or the product
 // actually produces are here — the desktop shell's ephemeral `127.0.0.1:0`,

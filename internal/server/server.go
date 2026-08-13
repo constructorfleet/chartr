@@ -333,7 +333,12 @@ func (s *Server) Serve(ctx context.Context, ln net.Listener) error {
 	// and neither the origin patterns above nor the host gate below stand in the
 	// way of a client that is not a browser. Nothing is refused here: an operator
 	// who meant it keeps working, and they are told what they exposed.
-	if exposedBind(ln.Addr()) {
+	// CHARTR_IN_CONTAINER=1 is the operator's declaration that a non-loopback
+	// bind is intended — that IS the container's configuration, not a mistake
+	// worth warning about on every start. Bare-metal operators keep the
+	// warning; the check itself still runs so a loopback bind stays quiet
+	// (there is nothing to warn about) in both cases.
+	if exposedBind(ln.Addr()) && os.Getenv("CHARTR_IN_CONTAINER") != "1" {
 		log.Print(exposureWarning(ln.Addr()))
 	}
 
